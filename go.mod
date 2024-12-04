@@ -1,4 +1,4 @@
-module github.com/eliben/raft
+module raft-consensus
 
 go 1.23.1
 

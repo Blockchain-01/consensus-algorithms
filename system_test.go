@@ -3,9 +3,7 @@
 // It's called a "system" test because it doesn't test a component (like
 // KVService) in isolation; rather, the test harness constructs a complete
 // system comprising of a cluster of services and some KVClients to exercise it.
-//
-// Eli Bendersky [https://eli.thegreenplace.net]
-// This code is in the public domain.
+
 package main
 
 import (
@@ -50,6 +48,35 @@ func TestBasicPutGetSingleClient(t *testing.T) {
 	h.CheckGet(c1, "llave", "cosa")
 	sleepMs(80)
 }
+
+// func TestDisconnect2Followers(t *testing.T) {
+// 	n := 5
+// 	h := NewHarness(t, n)
+// 	defer h.Shutdown()
+
+// 	origLeaderId, _ := h.CheckSingleLeader()
+
+// 	// h.DisconnectPeer(origLeaderId)
+// 	numDisconn := 2
+// 	disconnIds := []int{}
+// 	for i := range n {
+// 		if i != origLeaderId {
+// 			h.DisconnectPeer(i)
+// 			disconnIds = append(disconnIds, i)
+// 			if len(disconnIds) == numDisconn {
+// 				break
+// 			}
+// 		}
+// 	}
+
+// 	sleepMs(350)
+
+// 	for id := range disconnIds {
+// 		h.ReconnectPeer(id)
+// 	}
+
+// 	sleepMs(350)
+// }
 
 func TestPutPrevValue(t *testing.T) {
 	h := NewHarness(t, 3)

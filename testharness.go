@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eliben/raft/part3/raft"
-	"github.com/eliben/raft/part4kv/kvclient"
-	"github.com/eliben/raft/part4kv/kvservice"
+	"raft-consensus/kvclient"
+	"raft-consensus/kvservice"
+	"raft-consensus/raft"
 )
 
 func init() {

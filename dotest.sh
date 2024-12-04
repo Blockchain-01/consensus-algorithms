@@ -1,7 +1,8 @@
 #!/bin/bash
-set -ex
+set -x
+set -e
 
-logfile=~/temp/rlog
+logfile=/tmp/raftlog
 
 go test -v -race -run $@ |& tee ${logfile}
 

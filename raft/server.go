@@ -1,8 +1,6 @@
 // Server container for a Raft Consensus Module. Exposes Raft to the network
 // and enables RPCs between Raft peers.
-//
-// Eli Bendersky [https://eli.thegreenplace.net]
-// This code is in the public domain.
+
 package raft
 
 import (
@@ -29,11 +27,13 @@ type Server struct {
 	peerIds  []int
 
 	cm       *ConsensusModule
+	storage  Storage
 	rpcProxy *RPCProxy
 
 	rpcServer *rpc.Server
 	listener  net.Listener
 
+	commitChan  chan<- CommitEntry
 	peerClients map[int]*rpc.Client
 
 	ready <-chan any
@@ -41,24 +41,26 @@ type Server struct {
 	wg    sync.WaitGroup
 }
 
-func NewServer(serverId int, peerIds []int, ready <-chan any) *Server {
+func NewServer(serverId int, peerIds []int, storage Storage, ready <-chan any, commitChan chan<- CommitEntry) *Server {
 	s := new(Server)
 	s.serverId = serverId
 	s.peerIds = peerIds
 	s.peerClients = make(map[int]*rpc.Client)
+	s.storage = storage
 	s.ready = ready
+	s.commitChan = commitChan
 	s.quit = make(chan any)
 	return s
 }
 
 func (s *Server) Serve() {
 	s.mu.Lock()
-	s.cm = NewConsensusModule(s.serverId, s.peerIds, s, s.ready)
+	s.cm = NewConsensusModule(s.serverId, s.peerIds, s, s.storage, s.ready, s.commitChan)
 
 	// Create a new RPC server and register a RPCProxy that forwards all methods
 	// to n.cm
 	s.rpcServer = rpc.NewServer()
-	s.rpcProxy = &RPCProxy{cm: s.cm}
+	s.rpcProxy = NewProxy(s.cm)
 	s.rpcServer.RegisterName("ConsensusModule", s.rpcProxy)
 
 	var err error
@@ -90,6 +92,11 @@ func (s *Server) Serve() {
 			}()
 		}
 	}()
+}
+
+// Submit wraps the underlying CM's Submit; see that method for documentation.
+func (s *Server) Submit(cmd any) int {
+	return s.cm.Submit(cmd)
 }
 
 // DisconnectAll closes all the client connections to peers for this server.
@@ -153,18 +160,47 @@ func (s *Server) Call(id int, serviceMethod string, args any, reply any) error {
 	if peer == nil {
 		return fmt.Errorf("call client %d after it's closed", id)
 	} else {
-		return peer.Call(serviceMethod, args, reply)
+		return s.rpcProxy.Call(peer, serviceMethod, args, reply)
 	}
 }
 
-// RPCProxy is a trivial pass-thru proxy type for ConsensusModule's RPC methods.
-// It's useful for:
+// IsLeader checks if s thinks it's the leader in the Raft cluster.
+func (s *Server) IsLeader() bool {
+	_, _, isLeader := s.cm.Report()
+	return isLeader
+}
+
+// Proxy provides access to the RPC proxy this server is using; this is only
+// for testing purposes to simulate faults.
+func (s *Server) Proxy() *RPCProxy {
+	return s.rpcProxy
+}
+
+// RPCProxy is a pass-thru proxy server for ConsensusModule's RPC methods. It
+// serves RPC requests made to a CM and manipulates them before forwarding to
+// the CM itself.
+//
+// It's useful for things like:
+//   - Simulating dropping of RPC calls
 //   - Simulating a small delay in RPC transmission.
-//   - Avoiding running into https://github.com/golang/go/issues/19957
 //   - Simulating possible unreliable connections by delaying some messages
 //     significantly and dropping others when RAFT_UNRELIABLE_RPC is set.
 type RPCProxy struct {
+	mu sync.Mutex
 	cm *ConsensusModule
+
+	// numCallsBeforeDrop is used to control dropping RPC calls:
+	//   -1: means we're not dropping any calls
+	//    0: means we're dropping all calls now
+	//   >0: means we'll start dropping calls after this number is made
+	numCallsBeforeDrop int
+}
+
+func NewProxy(cm *ConsensusModule) *RPCProxy {
+	return &RPCProxy{
+		cm:                 cm,
+		numCallsBeforeDrop: -1,
+	}
 }
 
 func (rpp *RPCProxy) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) error {
@@ -197,4 +233,35 @@ func (rpp *RPCProxy) AppendEntries(args AppendEntriesArgs, reply *AppendEntriesR
 		time.Sleep(time.Duration(1+rand.Intn(5)) * time.Millisecond)
 	}
 	return rpp.cm.AppendEntries(args, reply)
+}
+
+func (rpp *RPCProxy) Call(peer *rpc.Client, method string, args any, reply any) error {
+	rpp.mu.Lock()
+	if rpp.numCallsBeforeDrop == 0 {
+		rpp.mu.Unlock()
+		rpp.cm.dlog("drop Call %s: %v", method, args)
+		return fmt.Errorf("RPC failed")
+	} else {
+		if rpp.numCallsBeforeDrop > 0 {
+			rpp.numCallsBeforeDrop--
+		}
+		rpp.mu.Unlock()
+		return peer.Call(method, args, reply)
+	}
+}
+
+// DropCallsAfterN instruct the proxy to drop calls after n are made from this
+// point.
+func (rpp *RPCProxy) DropCallsAfterN(n int) {
+	rpp.mu.Lock()
+	defer rpp.mu.Unlock()
+
+	rpp.numCallsBeforeDrop = n
+}
+
+func (rpp *RPCProxy) DontDropCalls() {
+	rpp.mu.Lock()
+	defer rpp.mu.Unlock()
+
+	rpp.numCallsBeforeDrop = -1
 }

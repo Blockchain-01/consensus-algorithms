@@ -1,7 +1,5 @@
 // KV service based on Raft - main implementation file.
-//
-// Eli Bendersky [https://eli.thegreenplace.net]
-// This code is in the public domain.
+
 package kvservice
 
 import (
@@ -14,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eliben/raft/part3/raft"
-	"github.com/eliben/raft/part4kv/api"
+	"raft-consensus/api"
+	"raft-consensus/raft"
 )
 
 const DebugKV = 1
