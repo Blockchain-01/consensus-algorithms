@@ -49,34 +49,46 @@ func TestBasicPutGetSingleClient(t *testing.T) {
 	sleepMs(80)
 }
 
-// func TestDisconnect2Followers(t *testing.T) {
-// 	n := 5
-// 	h := NewHarness(t, n)
-// 	defer h.Shutdown()
+func TestDisconnect2Followers(t *testing.T) {
+	n := 5
+	h := NewHarness(t, n)
+	defer h.Shutdown()
 
-// 	origLeaderId, _ := h.CheckSingleLeader()
+	origLeaderId := h.CheckSingleLeader()
 
-// 	// h.DisconnectPeer(origLeaderId)
-// 	numDisconn := 2
-// 	disconnIds := []int{}
-// 	for i := range n {
-// 		if i != origLeaderId {
-// 			h.DisconnectPeer(i)
-// 			disconnIds = append(disconnIds, i)
-// 			if len(disconnIds) == numDisconn {
-// 				break
-// 			}
-// 		}
-// 	}
+	// send a PUT request to the cluster
+	c1 := h.NewClient()
+	prev, found := h.CheckPut(c1, "one", "RAFT")
+	if found || prev != "" {
+		t.Errorf(`got found=%v, prev=%v, want false/""`, found, prev)
+	}
 
-// 	sleepMs(350)
+	// disconnect 2 followers
+	numDisconn := 2
+	disconnIds := []int{}
+	for i := range n {
+		if i != origLeaderId {
+			h.DisconnectServiceFromPeers(i)
+			disconnIds = append(disconnIds, i)
+			if len(disconnIds) == numDisconn {
+				break
+			}
+		}
+	}
 
-// 	for id := range disconnIds {
-// 		h.ReconnectPeer(id)
-// 	}
+	prev, found = h.CheckPut(c1, "two", "pBFT")
+	if found || prev != "" {
+		t.Errorf(`got found=%v, prev=%v, want false/""`, found, prev)
+	}
 
-// 	sleepMs(350)
-// }
+	for _, id := range disconnIds {
+		h.ReconnectServiceToPeers(id)
+	}
+
+	h.CheckGet(c1, "two", "pBFT")
+
+	sleepMs(3000)
+}
 
 func TestPutPrevValue(t *testing.T) {
 	h := NewHarness(t, 3)
