@@ -90,6 +90,74 @@ func TestDisconnect2Followers(t *testing.T) {
 	sleepMs(3000)
 }
 
+func TestDisconnect3Followers(t *testing.T) {
+	n := 5
+	h := NewHarness(t, n)
+	defer h.Shutdown()
+
+	origLeaderId := h.CheckSingleLeader()
+
+	// send a PUT request to the cluster
+	c1 := h.NewClient()
+	prev, found := h.CheckPut(c1, "one", "RAFT")
+	if found || prev != "" {
+		t.Errorf(`got found=%v, prev=%v, want false/""`, found, prev)
+	}
+
+	// disconnect 2 followers
+	numDisconn := 3
+	disconnIds := []int{}
+	for i := range n {
+		if i != origLeaderId {
+			h.DisconnectServiceFromPeers(i)
+			disconnIds = append(disconnIds, i)
+			if len(disconnIds) == numDisconn {
+				break
+			}
+		}
+	}
+
+	prev, found = h.CheckPut(c1, "two", "pBFT")
+	if found || prev != "" {
+		t.Errorf(`got found=%v, prev=%v, want false/""`, found, prev)
+	}
+
+	for _, id := range disconnIds {
+		h.ReconnectServiceToPeers(id)
+	}
+
+	h.CheckGet(c1, "two", "pBFT")
+
+	sleepMs(2000)
+}
+
+func Test2Partition(t *testing.T) {
+	n := 5
+	h := NewHarness(t, n)
+	defer h.Shutdown()
+
+	// send a PUT request to the cluster
+	c1 := h.NewClient()
+	prev, found := h.CheckPut(c1, "one", "RAFT")
+	if found || prev != "" {
+		t.Errorf(`got found=%v, prev=%v, want false/""`, found, prev)
+	}
+
+	cluster1, cluster2 := PartitionInto2ClusterBySize(n, 2)
+	h.Disconnect2Cluster(cluster1, cluster2)
+
+	prev, found = h.CheckPut(c1, "one", "Bitcoin")
+	if !found || prev != "RAFT" {
+		t.Errorf(`got found=%v, prev=%v, want true/"RAFT"`, found, prev)
+	}
+	sleepMs(300)
+
+	h.Reconnect2Cluster(cluster1, cluster2)
+
+	h.CheckGet(c1, "one", "Bitcoin")
+
+	sleepMs(2000)
+}
 func TestPutPrevValue(t *testing.T) {
 	h := NewHarness(t, 3)
 	defer h.Shutdown()

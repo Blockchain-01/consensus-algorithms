@@ -113,6 +113,44 @@ func NewHarness(t *testing.T, n int) *Harness {
 	return h
 }
 
+func PartitionInto2ClusterBySize(n int, size1 int) ([]int, []int) {
+	cluster1 := make([]int, 0)
+	cluster2 := make([]int, 0)
+	for i := 0; i < size1; i++ {
+		cluster1 = append(cluster1, i)
+	}
+	for j := size1; j < n; j++ {
+		cluster2 = append(cluster2, j)
+	}
+	return cluster1, cluster2
+}
+
+func (h *Harness) Disconnect2Cluster(cl1 []int, cl2 []int) {
+	tlog("Disconnect (%d-%d) and (%d-%d)", 0, len(cl1)-1, len(cl1), len(cl1)+len(cl2)-1)
+
+	for _, cl1Id := range cl1 {
+		for _, cl2Id := range cl2 {
+			h.kvCluster[cl1Id].DisconnectFromRaftPeer(cl2Id)
+			h.kvCluster[cl2Id].DisconnectFromRaftPeer(cl1Id)
+		}
+	}
+}
+
+func (h *Harness) Reconnect2Cluster(cl1 []int, cl2 []int) {
+	tlog("Reconnect (%d-%d) and (%d-%d)", 0, len(cl1)-1, len(cl1), len(cl1)+len(cl2)-1)
+
+	for _, cl1Id := range cl1 {
+		for _, cl2Id := range cl2 {
+			if err := h.kvCluster[cl1Id].ConnectToRaftPeer(cl2Id, h.kvCluster[cl2Id].GetRaftListenAddr()); err != nil {
+				h.t.Fatal(err)
+			}
+			if err := h.kvCluster[cl2Id].ConnectToRaftPeer(cl1Id, h.kvCluster[cl1Id].GetRaftListenAddr()); err != nil {
+				h.t.Fatal(err)
+			}
+		}
+	}
+}
+
 func (h *Harness) DisconnectServiceFromPeers(id int) {
 	tlog("Disconnect %d", id)
 	h.kvCluster[id].DisconnectFromAllRaftPeers()
